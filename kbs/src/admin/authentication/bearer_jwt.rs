@@ -37,12 +37,15 @@ pub struct IssuerConfig {
     pub audience: Option<String>,
     pub public_key_uri: Option<String>,
     pub jwk_set_uri: Option<String>,
+    #[serde(default)]
+    pub allowed_roles: Option<Vec<String>>,
 }
 
 struct TrustedIssuer {
     issuer: Option<String>,
     audience: Option<String>,
     verifier: JwtVerifier,
+    allowed_roles: Option<Vec<String>>,
 }
 
 pub struct BearerJwtTokenVerifier {
@@ -76,6 +79,7 @@ impl BearerJwtTokenVerifier {
                 issuer,
                 audience: idp_config.audience,
                 verifier,
+                allowed_roles: idp_config.allowed_roles,
             });
         }
 
@@ -129,6 +133,11 @@ impl TokenVerifierTrait for BearerJwtTokenVerifier {
                 );
             }
 
+            if !owner_role_allowed(trusted_issuer.allowed_roles.as_deref(), &claims.role) {
+                error!("unrecognized role for issuer");
+                continue;
+            }
+
             info!("Endorsement of a token has been verified successfully. Continue to check the authorization.");
             debug!("Admin claims: {:?}", claims);
             return Ok(claims);
@@ -170,4 +179,25 @@ fn claims_from_value(value: Value) -> Result<Claims> {
         .to_string();
 
     Ok(Claims { role })
+}
+
+
+// An estate identity provider specifies exactly the roles its signing key may
+// assert. None retains upstream behavior for configurations outside the estate.
+fn owner_role_allowed(allowed_roles: Option<&[String]>, role: &str) -> bool {
+    allowed_roles.is_none_or(|roles| roles.iter().any(|allowed| allowed == role))
+}
+
+#[cfg(test)]
+mod estate_owner_role_tests {
+    use super::owner_role_allowed;
+
+    #[test]
+    fn signer_cannot_assert_another_owner_or_policy_role() {
+        let model = vec!["model-owner".to_string()];
+        assert!(owner_role_allowed(Some(&model), "model-owner"));
+        assert!(!owner_role_allowed(Some(&model), "data-owner"));
+        assert!(!owner_role_allowed(Some(&model), "policy-administrator"));
+        assert!(!owner_role_allowed(Some(&[]), "model-owner"));
+    }
 }

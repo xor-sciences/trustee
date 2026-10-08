@@ -8,7 +8,30 @@ use anyhow::{anyhow, bail, Result};
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use base64::Engine;
 use kbs_protocol::evidence_provider::NativeEvidenceProvider;
-use kbs_protocol::token_provider::TestTokenProvider;
+
+// This client receives one signed Veraison result and its matching private key.
+// A denied request must not rotate to the upstream test token or a fresh key.
+#[derive(Default)]
+struct BoundTokenOnly;
+
+#[async_trait::async_trait]
+impl kbs_protocol::token_provider::TokenProvider for BoundTokenOnly {
+    async fn get_token(&self) -> kbs_protocol::Result<(kbs_protocol::Token, kbs_protocol::TeeKeyPair)> {
+        Err(kbs_protocol::Error::UnAuthorized)
+    }
+}
+
+#[cfg(test)]
+mod bound_token_tests {
+    use super::BoundTokenOnly;
+    use kbs_protocol::token_provider::TokenProvider;
+
+    #[tokio::test]
+    async fn denied_bound_token_cannot_be_refreshed() {
+        assert!(BoundTokenOnly.get_token().await.is_err());
+    }
+}
+
 use kbs_protocol::KbsClientBuilder;
 use kbs_protocol::KbsClientCapabilities;
 use serde::Serialize;
@@ -66,7 +89,7 @@ pub async fn get_resource_with_token(
     token: String,
     kbs_root_certs_pem: Vec<String>,
 ) -> Result<Vec<u8>> {
-    let token_provider = Box::<TestTokenProvider>::default();
+    let token_provider = Box::<BoundTokenOnly>::default();
     let mut client_builder =
         KbsClientBuilder::with_token_provider(token_provider, url).set_token(&token);
     client_builder = client_builder.set_tee_key(&tee_key_pem);

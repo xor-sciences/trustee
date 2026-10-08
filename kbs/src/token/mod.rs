@@ -9,6 +9,7 @@ use tracing::debug;
 
 use crate::crypto::jwt::JwtVerifier;
 
+mod estate_ear_key;
 mod error;
 pub use error::*;
 
@@ -106,7 +107,7 @@ impl TokenVerifier {
         for path in &self.extra_teekey_paths {
             if let Some(pkey_value) = claim.pointer(path) {
                 debug!("Extract tee public key from {path}");
-                return TeePubKey::deserialize(pkey_value).map_err(|_| Error::TeePubKeyParseFailed);
+                return estate_ear_key::extract(path, pkey_value);
             }
         }
 
